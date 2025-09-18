@@ -1,0 +1,160 @@
+﻿<script>
+    const video = document.getElementById('camera');
+    const shutter = document.getElementById('shutter');
+    const gallery = document.getElementById('gallery-preview');
+    const switchBtn = document.getElementById('switch');
+    const flashOverlay = document.getElementById('flash');
+    const modes = document.querySelectorAll('.modes span');
+    const flashToggleBtn = document.getElementById('flashToggle'); // Get the flash button
+    const ratioBtn = document.getElementById('ratioBtn'); // Get the aspect ratio button
+
+    let currentStream;
+    let usingFront = false;
+    let currentMode = "Photo";
+    let mediaRecorder;
+    let recordedChunks = [];
+    let flashOn = false; // To track flash state
+    let currentRatio = '3:4'; // To track aspect ratio
+
+    // Function to start the camera stream
+    async function startCamera() {
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+        try {
+            const constraints = {
+                video: {
+                    facingMode: usingFront ? "user" : "environment",
+                    // Adding aspect ratio constraint
+                    aspectRatio: currentRatio === '3:4' ? 3 / 4 : 16 / 9
+                },
+                audio: true
+            };
+            currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = currentStream;
+        } catch (err) {
+            console.error("Camera access failed: ", err);
+            alert("Camera access failed. Please ensure you have granted permissions.");
+        }
+    }
+    startCamera();
+
+    // Switch camera
+    switchBtn.onclick = () => {
+        usingFront = !usingFront;
+        startCamera();
+    };
+
+    // Toggle flash on/off. Note: This doesn't control a real flash, just the overlay.
+    flashToggleBtn.onclick = () => {
+        flashOn = !flashOn;
+        flashToggleBtn.textContent = flashOn ? '💡' : '⚡';
+    };
+
+    // Toggle aspect ratio.
+    ratioBtn.onclick = () => {
+        currentRatio = currentRatio === '3:4' ? '16:9' : '3:4';
+        ratioBtn.textContent = currentRatio;
+        startCamera();
+    };
+
+    // Mode switching
+    modes.forEach(m => {
+        m.onclick = () => {
+            modes.forEach(x => x.classList.remove("active"));
+            m.classList.add("active");
+            currentMode = m.textContent.trim(); // Use trim() to remove any whitespace
+        };
+    });
+
+    // Shutter actions
+    shutter.onclick = () => {
+        if (currentMode === "Photo" || currentMode === "Portrait" || currentMode === "Pano") {
+            capturePhoto();
+        } else if (currentMode === "Video" || currentMode === "Slo-Mo") {
+            toggleVideo();
+        }
+    };
+
+    function capturePhoto() {
+        const canvas = document.createElement('canvas'); // Create canvas dynamically
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.filter = video.style.filter;
+
+        if (currentMode === "Portrait") {
+            // Apply blur to the background by blurring the whole image and then
+            // a more complex process would be needed to un-blur the face.
+            // For this simple example, we'll just apply a light blur.
+            ctx.filter += " blur(2px)";
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/png');
+        gallery.src = dataUrl;
+
+        // Flash effect
+        if (flashOn) {
+            flashOverlay.style.opacity = 1;
+            setTimeout(() => flashOverlay.style.opacity = 0, 200);
+        }
+
+        // To automatically download the image
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = `photo_${Date.now()}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+
+    function toggleVideo() {
+        if (!mediaRecorder || mediaRecorder.state === "inactive") {
+            recordedChunks = [];
+            // Check if stream has video track
+            const videoTrack = currentStream.getVideoTracks()[0];
+            if (!videoTrack) {
+                alert("No video track available to record.");
+                return;
+            }
+
+            mediaRecorder = new MediaRecorder(currentStream, {
+                mimeType: 'video/webm; codecs=vp9'
+            });
+
+            mediaRecorder.ondataavailable = e => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: "video/webm" });
+                const url = URL.createObjectURL(blob);
+                gallery.src = url;
+                gallery.play(); // Auto-play the video preview
+                if (currentMode === "Slo-Mo") {
+                    gallery.playbackRate = 0.5; // slow down playback
+                }
+
+                // To automatically download the video
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `video_${Date.now()}.webm`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url); // Clean up
+            };
+
+            mediaRecorder.start();
+            shutter.style.background = "#ff7777"; // recording indicator
+        } else {
+            mediaRecorder.stop();
+            shutter.style.background = "#fff8ef";
+        }
+    }
+
+    // Filters
+    function setFilter(filter) {
+        video.style.filter = filter;
+    }
+</script>
